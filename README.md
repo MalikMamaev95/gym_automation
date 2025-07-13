@@ -28,9 +28,13 @@ The architecture of this project is fully serverless and cost effective. I will 
     ```
 
 2.  **Deploy Backend Infrastructure:**
+    Create S3 Bucket for Lambda code:
     ```
     aws s3 mb s3://gym-logger-lambda-bucket --region eu-north-1 
     aws s3 cp gym-logger-lambda.zip s3://gym-logger-lambda-bucket/gym-logger-lambda.zip --region eu-north-1
+    ```
+    Deploy Backend stack:
+    ```
     aws cloudformation deploy \
       --template-file backend_template.json \
       --stack-name GymLoggerBackendStack \
@@ -41,9 +45,12 @@ The architecture of this project is fully serverless and cost effective. I will 
         LambdaCodeS3Bucket=gym-logger-lambda-bucket \
         LambdaCodeS3Key=gym-logger-lambda.zip
     ```
-    Note down the `ApiGatewayInvokeUrl` from the CloudFormation stack outputs.
+    Note down the `ApiGatewayInvokeUrl` from the describe command output.
+    ```
+    aws cloudformation describe-stacks --stack-name GymLoggerBackendStack
+    ```
 
-3.  **Deploy Cognito Infrastructure:**
+4.  **Deploy Cognito Infrastructure:**
     ```
     aws cloudformation deploy \
       --template-file cognito_template.json \
@@ -56,19 +63,45 @@ The architecture of this project is fully serverless and cost effective. I will 
         ApiGatewayRegion=eu-north-1 \
         ApiGatewayStageName=Prod
     ```
-    Note down the `UserPoolId`, `UserPoolClientId`, and `IdentityPoolId` from the CloudFormation stack outputs.
+    Note down the `UserPoolId`, `UserPoolClientId`, and `IdentityPoolId` from the describe command output.
+    ```
+    aws cloudformation describe-stacks --stack-name GymLoggerCognitoStack
+    ```
 
-4.  **Configure Frontend `aws-exports.js`:**
+6.  **Configure Frontend `aws-exports.js`:**
     Navigate to the `gymlogger-frontend/src` directory.
-    Open `aws-exports.js` and update the placeholders with the actual values from the outputs.
+    Create `aws-exports.js` and update the placeholders with the actual values from the outputs.
+    ```
+    const awsExports = {
+        Auth: {
+            Cognito: {
+                // From Cognito_template.json Outputs
+                userPoolId: 'PLACEHOLDER',
+                userPoolClientId: 'PLACEHOLDER',
+                identityPoolId: 'PLACEHOLDER',
+                region: 'eu-north-1',
+            }
+        },
+        API: {
+            REST: {
+                GymLoggerApi: {
+                    // From Backend_template.json Outputs
+                    endpoint: 'PLACEHOLDER',
+                    region: 'eu-north-1',
+                }
+            }
+        }
+    };
 
-5.  **Build and Deploy Frontend:**
+    export default awsExports;
+    ```
+
+8.  **Build and Deploy Frontend:**
     Navigate to the `gym-automation` directory.
     ```
     aws cloudformation deploy \
     --template-file frontend_template.json \
     --stack-name GymLoggerFrontendStack \
-    --stack-name GymLoggerFrontendS3Stack \
     --capabilities CAPABILITY_NAMED_IAM \
     --region eu-north-1
     --parameter-overrides \ 
@@ -91,7 +124,7 @@ The architecture of this project is fully serverless and cost effective. I will 
     aws cloudfront create-invalidation --distribution-id PLACEHOLDER --paths "/*"
     ```
 
-7.  **Test the Application:**
+9.  **Test the Application:**
     Go to the CloudFront Distribution URL in the output and test the application:
     ```
     aws cloudformation describe-stacks --stack-name GymLoggerFrontendStack-Test
