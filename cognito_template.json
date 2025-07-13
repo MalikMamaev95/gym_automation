@@ -1,0 +1,179 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation template for GymLogger Fitness Tracker Cognito User Pool and Identity Pool.",
+
+  "Parameters": {
+    "EnvironmentName": {
+      "Type": "String",
+      "Description": "Name of the environment",
+      "Default": "Sandbox"
+    },
+    "ApiGatewayRestApiId": {
+      "Type": "String",
+      "Description": "The RestApiId of the GymLogger API Gateway"
+    },
+    "ApiGatewayRegion": {
+      "Type": "String",
+      "Description": "The AWS Region where the API Gateway is deployed"
+    },
+    "ApiGatewayStageName": {
+      "Type": "String",
+      "Description": "The stage name of the API Gateway"
+    }
+  },
+
+  "Resources": {
+    "GymLoggerUserPool": {
+      "Type": "AWS::Cognito::UserPool",
+      "Properties": {
+        "UserPoolName": { "Fn::Sub": "${EnvironmentName}-GymLoggerUserPool" },
+        "UsernameAttributes": ["email"],
+        "AutoVerifiedAttributes": ["email"],
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 8,
+            "RequireLowercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": true,
+            "RequireUppercase": true
+          }
+        },
+        "Schema": [
+          {
+            "Name": "email",
+            "AttributeDataType": "String",
+            "Mutable": true,
+            "Required": true
+          },
+          {
+            "Name": "userId",
+            "AttributeDataType": "String",
+            "Mutable": true,
+            "Required": false
+          }
+        ],
+        "MfaConfiguration": "OFF",
+        "VerificationMessageTemplate": {
+          "DefaultEmailOption": "CONFIRM_WITH_CODE",
+          "EmailMessage": "Your verification code for GymLogger is {####}.",
+          "EmailSubject": "GymLogger Verification Code"
+        }
+      }
+    },
+
+    "GymLoggerUserPoolClient": {
+      "Type": "AWS::Cognito::UserPoolClient",
+      "Properties": {
+        "ClientName": { "Fn::Sub": "${EnvironmentName}-GymLoggerUserPoolClient" },
+        "UserPoolId": { "Ref": "GymLoggerUserPool" },
+        "GenerateSecret": false,
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_SRP_AUTH"
+        ],
+        "SupportedIdentityProviders": ["COGNITO"],
+        "CallbackURLs": ["http://localhost:3000", "http://localhost:5173", "https://DOMAIN"],
+        "LogoutURLs": ["http://localhost:3000", "http://localhost:5173", "https://DOMAIN"],
+        "AllowedOAuthFlowsUserPoolClient": true,
+        "AllowedOAuthFlows": ["code", "implicit"],
+        "AllowedOAuthScopes": ["openid", "email", "profile", "aws.cognito.signin.user.admin"],
+        "EnableTokenRevocation": true
+      }
+    },
+
+    "GymLoggerIdentityPool": {
+      "Type": "AWS::Cognito::IdentityPool",
+      "Properties": {
+        "IdentityPoolName": { "Fn::Sub": "${EnvironmentName}-GymLoggerIdentityPool" },
+        "AllowUnauthenticatedIdentities": false,
+        "CognitoIdentityProviders": [
+          {
+            "ClientId": { "Ref": "GymLoggerUserPoolClient" },
+            "ProviderName": { "Fn::GetAtt": ["GymLoggerUserPool", "ProviderName"] }
+          }
+        ]
+      }
+    },
+
+    "CognitoAuthenticatedRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${EnvironmentName}-GymLoggerAuthenticatedRole" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": "cognito-identity.amazonaws.com"
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "cognito-identity.amazonaws.com:aud": { "Ref": "GymLoggerIdentityPool" }
+                },
+                "ForAnyValue:StringLike": {
+                  "cognito-identity.amazonaws.com:amr": "authenticated"
+                }
+              }
+            }
+          ]
+        },
+
+        "Policies": [
+          {
+            "PolicyName": "CognitoAuthorizedPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "mobileanalytics:PutEvents",
+                    "cognito-sync:*"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "execute-api:Invoke",
+                  "Resource": {
+                    "Fn::Sub": "*"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    "IdentityPoolRoleAttachment": {
+      "Type": "AWS::Cognito::IdentityPoolRoleAttachment",
+      "Properties": {
+        "IdentityPoolId": { "Ref": "GymLoggerIdentityPool" },
+        "Roles": {
+          "authenticated": { "Fn::GetAtt": ["CognitoAuthenticatedRole", "Arn"] }
+        }
+      }
+    }
+  },
+
+  "Outputs": {
+    "UserPoolId": {
+      "Description": "Cognito User Pool ID",
+      "Value": { "Ref": "GymLoggerUserPool" }
+    },
+    "UserPoolClientId": {
+      "Description": "Cognito User Pool Client ID",
+      "Value": { "Ref": "GymLoggerUserPoolClient" }
+    },
+    "IdentityPoolId": {
+      "Description": "Cognito Identity Pool ID",
+      "Value": { "Ref": "GymLoggerIdentityPool" }
+    },
+    "AuthenticatedRoleArn": {
+      "Description": "ARN of the IAM role for authenticated users",
+      "Value": { "Fn::GetAtt": ["CognitoAuthenticatedRole", "Arn"] }
+    }
+  }
+}

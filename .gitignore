@@ -1,0 +1,4 @@
+node_modules/
+gymlogger-frontend/dist/
+.env
+gymlogger-frontend/src/aws-exports.js

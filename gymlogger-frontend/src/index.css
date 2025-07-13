@@ -1,0 +1,40 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fill viewport */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Black background for entire page */
+html, body {
+  background-color: #202227; /* dark gray/black */
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Center login box */
+#root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+/* Login box styling */
+.login-box {
+  background-color: #2d3748; /* slightly lighter box */
+  padding: 2rem;
+  border-radius: 0.5rem;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}

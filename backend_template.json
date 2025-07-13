@@ -1,0 +1,461 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation template for the GymLogger backend. Deploys DynamoDB tables, Lambda functions, and API Gateway.",
+
+  "Parameters": {
+    "EnvironmentName": {
+      "Type": "String",
+      "Description": "The name of the environment",
+      "Default": "Sandbox"
+    },
+    "LambdaMemorySize": {
+      "Type": "Number",
+      "Description": "Memory size for Lambda functions in MB",
+      "Default": 128
+    },
+    "LambdaTimeout": {
+      "Type": "Number",
+      "Description": "Timeout for Lambda functions in seconds",
+      "Default": 30
+    },
+    "DynamoDBReadCapacity": {
+      "Type": "Number",
+      "Description": "Read Capacity units for DynamoDB tables",
+      "Default": 5
+    },
+    "DynamoDBWriteCapacity": {
+      "Type": "Number",
+      "Description": "Write Capacity units for DynamoDB tables",
+      "Default": 5
+    },
+    "LambdaCodeS3Bucket": {
+      "Type": "String",
+      "Description": "Name of the EXISTING S3 bucket where Lambda code is stored. Must be globally unique.",
+      "Default": "gymlogger-lambda-code-staging-yourinitials"
+    },
+    "LambdaCodeS3Key": {
+      "Type": "String",
+      "Description": "S3 key (filename) for the Lambda code zip file",
+      "Default": "gym-logger-lambda.zip"
+    }
+  },
+
+  "Resources": {
+    "GymLoggerTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${EnvironmentName}-GymLoggerEntries" },
+        "AttributeDefinitions": [
+          { "AttributeName": "userId", "AttributeType": "S" },
+          { "AttributeName": "id", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "userId", "KeyType": "HASH" },
+          { "AttributeName": "id", "KeyType": "RANGE" }
+        ],
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": { "Ref": "DynamoDBReadCapacity" },
+          "WriteCapacityUnits": { "Ref": "DynamoDBWriteCapacity" }
+        },
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": false
+        }
+      }
+    },
+
+    "GymLoggerApiLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "GymLoggerLambdaPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": { "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*" }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query"
+                  ],
+                  "Resource": { "Fn::GetAtt": ["GymLoggerTable", "Arn"] }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject"
+                  ],
+                  "Resource": { "Fn::Sub": "arn:aws:s3:::${LambdaCodeS3Bucket}/${LambdaCodeS3Key}" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    "GymLoggerApiLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": { "Fn::Sub": "${EnvironmentName}-GymLoggerApiLambda" },
+        "Handler": "index.handler",
+        "Runtime": "nodejs18.x",
+        "MemorySize": { "Ref": "LambdaMemorySize" },
+        "Timeout": { "Ref": "LambdaTimeout" },
+        "Role": { "Fn::GetAtt": ["GymLoggerApiLambdaRole", "Arn"] },
+        "Code": {
+          "S3Bucket": { "Ref": "LambdaCodeS3Bucket" },
+          "S3Key": { "Ref": "LambdaCodeS3Key" }
+        },
+        "Environment": {
+          "Variables": {
+            "TABLE_NAME": { "Ref": "GymLoggerTable" }
+          }
+        }
+      }
+    },
+
+    "GymLoggerRestApi": {
+      "Type": "AWS::ApiGateway::RestApi",
+      "Properties": {
+        "Name": { "Fn::Sub": "${EnvironmentName}-GymLoggerApi" },
+        "Description": "API for GymLogger Fitness Tracker",
+        "EndpointConfiguration": {
+          "Types": ["REGIONAL"]
+        }
+      }
+    },
+
+    "UserEntriesResource": {
+      "Type": "AWS::ApiGateway::Resource",
+      "Properties": {
+        "ParentId": { "Fn::GetAtt": ["GymLoggerRestApi", "RootResourceId"] },
+        "PathPart": "entries",
+        "RestApiId": { "Ref": "GymLoggerRestApi" }
+      }
+    },
+
+    "UserEntriesUserIdResource": {
+      "Type": "AWS::ApiGateway::Resource",
+      "Properties": {
+        "ParentId": { "Fn::GetAtt": ["UserEntriesResource", "ResourceId"] },
+        "PathPart": "{userId}",
+        "RestApiId": { "Ref": "GymLoggerRestApi" }
+      }
+    },
+
+    "SingleEntryResource": {
+      "Type": "AWS::ApiGateway::Resource",
+      "Properties": {
+        "ParentId": { "Fn::GetAtt": ["UserEntriesUserIdResource", "ResourceId"] },
+        "PathPart": "{id}",
+        "RestApiId": { "Ref": "GymLoggerRestApi" }
+      }
+    },
+
+    "UserEntriesGetMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "GET",
+        "ResourceId": { "Fn::GetAtt": ["UserEntriesUserIdResource", "ResourceId"] },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "AuthorizationType": "AWS_IAM",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GymLoggerApiLambda.Arn}/invocations"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true
+            },
+            "ResponseModels": {
+              "application/json": "Empty"
+            }
+          }
+        ]
+      }
+    },
+
+    "UserEntriesPostMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "POST",
+        "ResourceId": { "Fn::GetAtt": ["UserEntriesUserIdResource", "ResourceId"] },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "AuthorizationType": "AWS_IAM",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GymLoggerApiLambda.Arn}/invocations"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "201",
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true
+            },
+            "ResponseModels": {
+              "application/json": "Empty"
+            }
+          }
+        ]
+      }
+    },
+
+    "SingleEntryPutMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "PUT",
+        "ResourceId": { "Fn::GetAtt": ["SingleEntryResource", "ResourceId"] },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "AuthorizationType": "AWS_IAM",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GymLoggerApiLambda.Arn}/invocations"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true
+            },
+            "ResponseModels": {
+              "application/json": "Empty"
+            }
+          }
+        ]
+      }
+    },
+
+    "SingleEntryDeleteMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "DELETE",
+        "ResourceId": { "Fn::GetAtt": ["SingleEntryResource", "ResourceId"] },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "AuthorizationType": "AWS_IAM",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GymLoggerApiLambda.Arn}/invocations"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true
+            },
+            "ResponseModels": {
+              "application/json": "Empty"
+            }
+          }
+        ]
+      }
+    },
+
+    "OptionsUserEntriesMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "OPTIONS",
+        "ResourceId": { "Fn::GetAtt": ["UserEntriesUserIdResource", "ResourceId"] },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "MOCK",
+          "IntegrationResponses": [
+            {
+              "StatusCode": "200",
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Origin": "'https://d3mb9gin18nwyg.cloudfront.net'"
+              },
+              "ResponseTemplates": {
+                "application/json": "{}"
+              }
+            }
+          ],
+          "RequestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Origin": true
+            }
+          }
+        ]
+      }
+    },
+
+    "OptionsSingleEntryMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "OPTIONS",
+        "ResourceId": { "Fn::GetAtt": ["SingleEntryResource", "ResourceId"] },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "MOCK",
+          "IntegrationResponses": [
+            {
+              "StatusCode": "200",
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Origin": "'https://d3mb9gin18nwyg.cloudfront.net'"
+              },
+              "ResponseTemplates": {
+                "application/json": "{}"
+              }
+            }
+          ],
+          "RequestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Origin": true
+            }
+          }
+        ]
+      }
+    },
+
+    "ApiDeployment": {
+      "Type": "AWS::ApiGateway::Deployment",
+      "DependsOn": [
+        "UserEntriesGetMethod",
+        "UserEntriesPostMethod",
+        "SingleEntryPutMethod",
+        "SingleEntryDeleteMethod",
+        "OptionsUserEntriesMethod",
+        "OptionsSingleEntryMethod"
+      ],
+      "Properties": {
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "Description": "Initial deployment of GymLogger API"
+      }
+    },
+
+    "ApiStage": {
+      "Type": "AWS::ApiGateway::Stage",
+      "Properties":{
+        "StageName": { "Ref": "EnvironmentName" },
+        "Description": { "Fn::Sub": "Stage for ${EnvironmentName} environment" },
+        "RestApiId": { "Ref": "GymLoggerRestApi" },
+        "DeploymentId": { "Ref": "ApiDeployment" }
+      }
+    },
+
+    "LambdaPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": { "Fn::GetAtt": ["GymLoggerApiLambda", "Arn"] },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GymLoggerRestApi}/*/*"
+        }
+      }
+    },
+
+    "ApiGatewayDefault4XXResponse": {
+      "Type": "AWS::ApiGateway::GatewayResponse",
+      "Properties": {
+        "ResponseParameters": {
+          "gatewayresponse.header.Access-Control-Allow-Origin": "'https://d3mb9gin18nwyg.cloudfront.net'",
+          "gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+          "gatewayresponse.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+        },
+        "ResponseType": "DEFAULT_4XX",
+        "RestApiId": { "Ref": "GymLoggerRestApi" }
+      }
+    },
+    "ApiGatewayDefault5XXResponse": {
+      "Type": "AWS::ApiGateway::GatewayResponse",
+      "Properties": {
+        "ResponseParameters": {
+          "gatewayresponse.header.Access-Control-Allow-Origin": "'https://d3mb9gin18nwyg.cloudfront.net'",
+          "gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+          "gatewayresponse.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+        },
+        "ResponseType": "DEFAULT_5XX",
+        "RestApiId": { "Ref": "GymLoggerRestApi" }
+      }
+    }
+  },
+
+  "Outputs": {
+    "ApiGatewayInvokeUrl": {
+      "Description": "URL for the GymLogger API",
+      "Value": {
+        "Fn::Sub": "https://${GymLoggerRestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}"
+      }
+    },
+    "DynamoDBTableName": {
+      "Description": "Name of the DynamoDB table",
+      "Value": { "Ref": "GymLoggerTable" }
+    },
+    "LambdaFunctionName": {
+      "Description": "Name of the GymLogger Lambda function",
+      "Value": { "Ref": "GymLoggerApiLambda" }
+    },
+    "LambdaCodeS3BucketName": {
+      "Description": "Name of the S3 bucket for Lambda code",
+      "Value": { "Ref": "LambdaCodeS3Bucket" }
+    }
+  }
+}

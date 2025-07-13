@@ -1,0 +1,85 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation template for GymLogger Frontend Hosting. Creates an S3 bucket configured for static website hosting.",
+  "Parameters": {
+    "EnvironmentName": {
+      "Type": "String",
+      "Description": "Name of the environment (e.g., Dev, Prod). Used for resource naming.",
+      "Default": "Sandbox"
+    },
+    "WebsiteBucketName": {
+      "Type": "String",
+      "Description": "Unique name for your S3 website bucket. Must be globally unique.",
+      "Default": "gym-logger-frontend"
+    }
+  },
+  "Resources": {
+
+  "FrontendS3Bucket": {
+  "Type": "AWS::S3::Bucket",
+  "Properties": {
+    "BucketName": { "Fn::Sub": "${WebsiteBucketName}" },
+    "WebsiteConfiguration": {
+      "IndexDocument": "index.html",
+      "ErrorDocument": "index.html"
+    },
+    "PublicAccessBlockConfiguration": {
+      "BlockPublicAcls": false,
+      "BlockPublicPolicy": false,
+      "IgnorePublicAcls": false,
+      "RestrictPublicBuckets": false
+    },
+    "CorsConfiguration": {
+      "CorsRules": [
+        {
+          "AllowedHeaders": ["*"],
+          "AllowedMethods": ["GET", "HEAD"],
+          "AllowedOrigins": ["*"],
+          "MaxAge": 3000
+        }
+      ]
+    },
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "GymLogger"
+      },
+      {
+        "Key": "Environment",
+        "Value": { "Ref": "EnvironmentName" }
+      }
+    ]
+  }
+  },
+
+    "FrontendS3BucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "FrontendS3Bucket" },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Sid": "PublicReadGetObject",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": [
+                "s3:GetObject"
+              ],
+              "Resource": { "Fn::Join": ["", [{ "Fn::GetAtt": ["FrontendS3Bucket", "Arn"] }, "/*"]] }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "WebsiteURL": {
+      "Description": "URL for the static website hosted on S3",
+      "Value": { "Fn::GetAtt": ["FrontendS3Bucket", "WebsiteURL"] }
+    },
+    "S3BucketName": {
+      "Description": "Name of the S3 bucket",
+      "Value": { "Ref": "FrontendS3Bucket" }
+    }
+  }
+}
