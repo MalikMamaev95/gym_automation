@@ -50,7 +50,7 @@ The architecture of this project is fully serverless and cost effective. I will 
     aws cloudformation describe-stacks --stack-name GymLoggerBackendStack
     ```
 
-4.  **Deploy Cognito Infrastructure:**
+3.  **Deploy Cognito Infrastructure:**
     ```
     aws cloudformation deploy \
       --template-file cognito_template.json \
@@ -68,7 +68,7 @@ The architecture of this project is fully serverless and cost effective. I will 
     aws cloudformation describe-stacks --stack-name GymLoggerCognitoStack
     ```
 
-6.  **Configure Frontend `aws-exports.js`:**
+4.  **Configure Frontend `aws-exports.js`:**
     Navigate to the `gymlogger-frontend/src` directory.
     Create `aws-exports.js` and update the placeholders with the actual values from the outputs.
     ```
@@ -96,7 +96,7 @@ The architecture of this project is fully serverless and cost effective. I will 
     export default awsExports;
     ```
 
-8.  **Build and Deploy Frontend:**
+5.  **Build and Deploy Frontend:**
     Navigate to the `gym-automation` directory.
     ```
     aws cloudformation deploy \
@@ -109,6 +109,10 @@ The architecture of this project is fully serverless and cost effective. I will 
     ApiGatewayRestApiId=PLACEHOLDER \
     ApiGatewayRegion=eu-north-1 \
     ApiGatewayStageName=Prod
+    ```
+    Note down the CloudFront Distribution URL and the ID:
+    ```
+    aws cloudformation describe-stacks --stack-name GymLoggerFrontendStack
     ```
 
     Navigate to the `gymlogger-frontend` directory.
@@ -124,51 +128,10 @@ The architecture of this project is fully serverless and cost effective. I will 
     aws cloudfront create-invalidation --distribution-id PLACEHOLDER --paths "/*"
     ```
 
-9.  **Test the Application:**
-    Go to the CloudFront Distribution URL in the output and test the application:
-    ```
-    aws cloudformation describe-stacks --stack-name GymLoggerFrontendStack-Test
-    ```
+6.  **Test the Application:**
+    Go to the CloudFront Distribution URL in the output and test the application.
 
 ## Troubleshooting
-Here are common issues you might encounter during deployment or operation, and their solutions:
-
-* **"Access denied error when visiting URL."**
-When trying to visit the URL I got this error:
-```
-<Error>
-
-<Code>AccessDenied</Code>
-
-<Message>Access Denied</Message>
-
-<RequestId>AE1QSEX35SA5AJF5</RequestId>
-
-<HostId>zG6g0Zs1H9AlTE3Q8xe3XJx4NJsLH/RM7UGV7t8Y50StXITfZQ7paNb57DTOfmP3fLMSX8GXwwnsZz//Xyma9lNWwNSnSY6I</HostId>
-
-</Error>
-```
-To fix it:
-- Go to the S3 frontend bucket.
-- Go to permissions.
-- Go to bucket policy.
-- Paste this:
-```
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "PublicReadGetObject",
-            "Effect": "Allow",
-            "Principal": "*",
-            "Action": [
-                "s3:GetObject"
-            ],
-            "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
-        }
-    ]
-}
-```
 
 * **"The client is not authorized to perform this operation when logging in the application."**
 To fix it:

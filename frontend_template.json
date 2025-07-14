@@ -11,7 +11,7 @@
     "WebsiteBucketName": {
       "Type": "String",
       "Description": "Unique name for your S3 website bucket. Must be globally unique.",
-      "Default": "gym-logger-frontend-test"
+      "Default": "gym-logger-frontend"
     }
   },
 
@@ -43,7 +43,24 @@
       },
       "DeletionPolicy": "Retain"
     },
-
+    "FrontendS3BucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "FrontendS3Bucket" },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "PublicReadGetObject",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": ["s3:GetObject"],
+              "Resource": { "Fn::Join": ["", ["arn:aws:s3:::", { "Ref": "WebsiteBucketName" }, "/*"]] }
+            }
+          ]
+        }
+      }
+    },
     "CloudFrontDistribution": {
       "Type": "AWS::CloudFront::Distribution",
       "Properties": {
