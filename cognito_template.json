@@ -1,24 +1,32 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "AWS CloudFormation template for GymLogger Fitness Tracker Cognito User Pool and Identity Pool.",
+  "Description": "AWS CloudFormation template for the GymLogger Cognito User Pool and Identity Pool.",
 
   "Parameters": {
     "EnvironmentName": {
       "Type": "String",
-      "Description": "Name of the environment",
+      "Description": "The name of the environment (e.g., Sandbox, Prod)",
       "Default": "Sandbox"
     },
     "ApiGatewayRestApiId": {
       "Type": "String",
-      "Description": "The RestApiId of the GymLogger API Gateway"
+      "Description": "The RestApiId of the deployed API Gateway.",
+      "Default": ""
     },
     "ApiGatewayRegion": {
       "Type": "String",
-      "Description": "The AWS Region where the API Gateway is deployed"
+      "Description": "The region of the deployed API Gateway.",
+      "Default": "eu-north-1"
     },
     "ApiGatewayStageName": {
       "Type": "String",
-      "Description": "The stage name of the API Gateway"
+      "Description": "The stage name of the deployed API Gateway.",
+      "Default": "Sandbox"
+    },
+    "FrontendAppURL": { 
+      "Type": "String",
+      "Description": "The full URL of the deployed frontend application (S3 Website or CloudFront).",
+      "Default": "http://localhost:5173" 
     }
   },
 
@@ -55,8 +63,8 @@
         "MfaConfiguration": "OFF",
         "VerificationMessageTemplate": {
           "DefaultEmailOption": "CONFIRM_WITH_CODE",
-          "EmailMessage": "Your verification code for GymLogger is {####}.",
-          "EmailSubject": "GymLogger Verification Code"
+          "EmailMessage": "Your verification code is {####}.",
+          "EmailSubject": "Your GymLogger Verification Code"
         }
       }
     },
@@ -68,15 +76,18 @@
         "UserPoolId": { "Ref": "GymLoggerUserPool" },
         "GenerateSecret": false,
         "ExplicitAuthFlows": [
-          "ALLOW_USER_SRP_AUTH"
+          "ALLOW_USER_SRP_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH",
+          "ALLOW_ADMIN_USER_PASSWORD_AUTH"
         ],
-        "SupportedIdentityProviders": ["COGNITO"],
-        "CallbackURLs": ["http://localhost:3000", "http://localhost:5173", "https://DOMAIN"],
-        "LogoutURLs": ["http://localhost:3000", "http://localhost:5173", "https://DOMAIN"],
-        "AllowedOAuthFlowsUserPoolClient": true,
-        "AllowedOAuthFlows": ["code", "implicit"],
-        "AllowedOAuthScopes": ["openid", "email", "profile", "aws.cognito.signin.user.admin"],
-        "EnableTokenRevocation": true
+        "CallbackURLs": [ 
+          { "Ref": "FrontendAppURL" },
+          "http://localhost:5173" 
+        ],
+        "LogoutURLs": [ 
+          { "Ref": "FrontendAppURL" },
+          "http://localhost:5173" 
+        ]
       }
     },
 
@@ -94,10 +105,9 @@
       }
     },
 
-    "CognitoAuthenticatedRole": {
+    "GymLoggerAuthenticatedRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
-        "RoleName": { "Fn::Sub": "${EnvironmentName}-GymLoggerAuthenticatedRole" },
         "AssumeRolePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [
@@ -118,7 +128,6 @@
             }
           ]
         },
-
         "Policies": [
           {
             "PolicyName": "CognitoAuthorizedPolicy",
@@ -137,7 +146,13 @@
                   "Effect": "Allow",
                   "Action": "execute-api:Invoke",
                   "Resource": {
-                    "Fn::Sub": "*"
+                    "Fn::Sub": [
+                      "arn:aws:execute-api:${ApiGatewayRegion}:${AWS::AccountId}:${ApiGatewayRestApiId}/${ApiGatewayStageName}/*",
+                      {
+                        "ApiGatewayRestApiId": { "Ref": "ApiGatewayRestApiId" },
+                        "ApiGatewayStageName": { "Ref": "ApiGatewayStageName" }
+                      }
+                    ]
                   }
                 }
               ]
@@ -152,7 +167,7 @@
       "Properties": {
         "IdentityPoolId": { "Ref": "GymLoggerIdentityPool" },
         "Roles": {
-          "authenticated": { "Fn::GetAtt": ["CognitoAuthenticatedRole", "Arn"] }
+          "authenticated": { "Fn::GetAtt": ["GymLoggerAuthenticatedRole", "Arn"] }
         }
       }
     }
@@ -173,7 +188,7 @@
     },
     "AuthenticatedRoleArn": {
       "Description": "ARN of the IAM role for authenticated users",
-      "Value": { "Fn::GetAtt": ["CognitoAuthenticatedRole", "Arn"] }
+      "Value": { "Fn::GetAtt": ["GymLoggerAuthenticatedRole", "Arn"] }
     }
   }
 }

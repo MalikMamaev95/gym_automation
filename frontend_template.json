@@ -1,85 +1,124 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "AWS CloudFormation template for GymLogger Frontend Hosting. Creates an S3 bucket configured for static website hosting.",
+  "Description": "AWS CloudFormation template for the GymLogger frontend. Deploys S3 bucket for static website hosting and CloudFront distribution.",
+
   "Parameters": {
     "EnvironmentName": {
       "Type": "String",
       "Description": "Name of the environment (e.g., Dev, Prod). Used for resource naming.",
-      "Default": "Sandbox"
+      "Default": "Prod"
     },
     "WebsiteBucketName": {
       "Type": "String",
       "Description": "Unique name for your S3 website bucket. Must be globally unique.",
-      "Default": "gym-logger-frontend"
+      "Default": "gym-logger-frontend-test"
     }
   },
+
   "Resources": {
-
-  "FrontendS3Bucket": {
-  "Type": "AWS::S3::Bucket",
-  "Properties": {
-    "BucketName": { "Fn::Sub": "${WebsiteBucketName}" },
-    "WebsiteConfiguration": {
-      "IndexDocument": "index.html",
-      "ErrorDocument": "index.html"
-    },
-    "PublicAccessBlockConfiguration": {
-      "BlockPublicAcls": false,
-      "BlockPublicPolicy": false,
-      "IgnorePublicAcls": false,
-      "RestrictPublicBuckets": false
-    },
-    "CorsConfiguration": {
-      "CorsRules": [
-        {
-          "AllowedHeaders": ["*"],
-          "AllowedMethods": ["GET", "HEAD"],
-          "AllowedOrigins": ["*"],
-          "MaxAge": 3000
-        }
-      ]
-    },
-    "Tags": [
-      {
-        "Key": "Project",
-        "Value": "GymLogger"
-      },
-      {
-        "Key": "Environment",
-        "Value": { "Ref": "EnvironmentName" }
-      }
-    ]
-  }
-  },
-
-    "FrontendS3BucketPolicy": {
-      "Type": "AWS::S3::BucketPolicy",
+    "FrontendS3Bucket": {
+      "Type": "AWS::S3::Bucket",
       "Properties": {
-        "Bucket": { "Ref": "FrontendS3Bucket" },
-        "PolicyDocument": {
-          "Statement": [
+        "BucketName": { "Ref": "WebsiteBucketName" },
+        "WebsiteConfiguration": {
+          "IndexDocument": "index.html",
+          "ErrorDocument": "index.html"
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": false,
+          "BlockPublicPolicy": false,
+          "IgnorePublicAcls": false,
+          "RestrictPublicBuckets": false
+        },
+        "CorsConfiguration": {
+          "CorsRules": [
             {
-              "Sid": "PublicReadGetObject",
-              "Effect": "Allow",
-              "Principal": "*",
-              "Action": [
-                "s3:GetObject"
-              ],
-              "Resource": { "Fn::Join": ["", [{ "Fn::GetAtt": ["FrontendS3Bucket", "Arn"] }, "/*"]] }
+              "AllowedHeaders": ["*"],
+              "AllowedMethods": ["GET", "HEAD"],
+              "AllowedOrigins": ["*"],
+              "MaxAge": 3000
             }
           ]
         }
+      },
+      "DeletionPolicy": "Retain"
+    },
+
+    "CloudFrontDistribution": {
+      "Type": "AWS::CloudFront::Distribution",
+      "Properties": {
+        "DistributionConfig": {
+          "Origins": [
+            {
+              "DomainName": { "Fn::GetAtt": ["FrontendS3Bucket", "RegionalDomainName"] },
+              "Id": "S3WebsiteOrigin",
+              "CustomOriginConfig": {
+                "HTTPPort": 80,
+                "HTTPSPort": 443,
+                "OriginProtocolPolicy": "http-only",
+                "OriginReadTimeout": 30,
+                "OriginKeepaliveTimeout": 5
+              }
+            }
+          ],
+          "Enabled": true,
+          "DefaultRootObject": "index.html",
+          "CustomErrorResponses": [
+            {
+              "ErrorCode": 403,
+              "ResponseCode": 200,
+              "ResponsePagePath": "/index.html"
+            },
+            {
+              "ErrorCode": 404,
+              "ResponseCode": 200,
+              "ResponsePagePath": "/index.html"
+            }
+          ],
+          "DefaultCacheBehavior": {
+            "TargetOriginId": "S3WebsiteOrigin",
+            "ViewerProtocolPolicy": "redirect-to-https",
+            "AllowedMethods": ["GET", "HEAD", "OPTIONS"],
+            "CachedMethods": ["GET", "HEAD", "OPTIONS"],
+            "Compress": true,
+            "ForwardedValues": { 
+              "QueryString": true,
+              "Headers": [
+                "Origin",
+                "Access-Control-Request-Headers",
+                "Access-Control-Request-Method"
+              ],
+              "Cookies": { "Forward": "none" }
+            },
+            "MinTTL": 0,
+            "DefaultTTL": 86400,
+            "MaxTTL": 31536000
+          },
+          "ViewerCertificate": {
+            "CloudFrontDefaultCertificate": true
+          },
+          "PriceClass": "PriceClass_100"
+        }
       }
     }
   },
+
   "Outputs": {
-    "WebsiteURL": {
-      "Description": "URL for the static website hosted on S3",
-      "Value": { "Fn::GetAtt": ["FrontendS3Bucket", "WebsiteURL"] }
+    "FrontendS3BucketName": {
+      "Description": "Name of the S3 bucket hosting the frontend",
+      "Value": { "Ref": "WebsiteBucketName" }
     },
-    "S3BucketName": {
-      "Description": "Name of the S3 bucket",
-      "Value": { "Ref": "FrontendS3Bucket" }
+    "CloudFrontDistributionId": {
+      "Description": "ID of the CloudFront Distribution",
+      "Value": { "Ref": "CloudFrontDistribution" }
+    },
+    "CloudFrontDistributionDomainName": {
+      "Description": "Domain name of the CloudFront Distribution",
+      "Value": { "Fn::GetAtt": ["CloudFrontDistribution", "DomainName"] }
+    },
+    "CloudFrontDistributionURL": {
+      "Description": "Full HTTPS URL of the CloudFront Distribution",
+      "Value": { "Fn::Sub": "https://${CloudFrontDistribution.DomainName}" }
     }
   }
 }

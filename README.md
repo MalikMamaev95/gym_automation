@@ -17,7 +17,7 @@ I decided to redo the project with more technical depth and no Excel. This time 
 The architecture of this project is fully serverless and cost effective. I will be using an Amazon S3 bucket to host the React application as a static website. User interactions will trigger the API Gateway and this will in turn invoke the Lambda functions and these will in turn read/write gym data to and from the DynamoDB database. 
 
 ## Diagram
-A high-level architecture diagram illustrating the interaction between React frontend, API Gateway, Lambda, and DynamoDB will be added here.
+<img width="509" height="551" alt="gym_automation" src="https://github.com/user-attachments/assets/8c1f8a1d-9ad5-4945-8158-76e1a72a9633" />
 
 ## Deployment Steps
 
@@ -28,9 +28,13 @@ A high-level architecture diagram illustrating the interaction between React fro
     ```
 
 2.  **Deploy Backend Infrastructure:**
+    Create S3 Bucket for Lambda code:
     ```
     aws s3 mb s3://gym-logger-lambda-bucket --region eu-north-1 
     aws s3 cp gym-logger-lambda.zip s3://gym-logger-lambda-bucket/gym-logger-lambda.zip --region eu-north-1
+    ```
+    Deploy Backend stack:
+    ```
     aws cloudformation deploy \
       --template-file backend_template.json \
       --stack-name GymLoggerBackendStack \
@@ -41,9 +45,12 @@ A high-level architecture diagram illustrating the interaction between React fro
         LambdaCodeS3Bucket=gym-logger-lambda-bucket \
         LambdaCodeS3Key=gym-logger-lambda.zip
     ```
-    Note down the `ApiGatewayInvokeUrl` from the CloudFormation stack outputs.
+    Note down the `ApiGatewayInvokeUrl` from the describe command output.
+    ```
+    aws cloudformation describe-stacks --stack-name GymLoggerBackendStack
+    ```
 
-3.  **Deploy Cognito Infrastructure:**
+4.  **Deploy Cognito Infrastructure:**
     ```
     aws cloudformation deploy \
       --template-file cognito_template.json \
@@ -56,19 +63,45 @@ A high-level architecture diagram illustrating the interaction between React fro
         ApiGatewayRegion=eu-north-1 \
         ApiGatewayStageName=Prod
     ```
-    Note down the `UserPoolId`, `UserPoolClientId`, and `IdentityPoolId` from the CloudFormation stack outputs.
+    Note down the `UserPoolId`, `UserPoolClientId`, and `IdentityPoolId` from the describe command output.
+    ```
+    aws cloudformation describe-stacks --stack-name GymLoggerCognitoStack
+    ```
 
-4.  **Configure Frontend `aws-exports.js`:**
+6.  **Configure Frontend `aws-exports.js`:**
     Navigate to the `gymlogger-frontend/src` directory.
-    Open `aws-exports.js` and update the placeholders with the actual values from the outputs.
+    Create `aws-exports.js` and update the placeholders with the actual values from the outputs.
+    ```
+    const awsExports = {
+        Auth: {
+            Cognito: {
+                // From Cognito_template.json Outputs
+                userPoolId: 'PLACEHOLDER',
+                userPoolClientId: 'PLACEHOLDER',
+                identityPoolId: 'PLACEHOLDER',
+                region: 'eu-north-1',
+            }
+        },
+        API: {
+            REST: {
+                GymLoggerApi: {
+                    // From Backend_template.json Outputs
+                    endpoint: 'PLACEHOLDER',
+                    region: 'eu-north-1',
+                }
+            }
+        }
+    };
 
-5.  **Build and Deploy Frontend:**
+    export default awsExports;
+    ```
+
+8.  **Build and Deploy Frontend:**
     Navigate to the `gym-automation` directory.
     ```
     aws cloudformation deploy \
     --template-file frontend_template.json \
     --stack-name GymLoggerFrontendStack \
-    --stack-name GymLoggerFrontendS3Stack \
     --capabilities CAPABILITY_NAMED_IAM \
     --region eu-north-1
     --parameter-overrides \ 
@@ -84,64 +117,70 @@ A high-level architecture diagram illustrating the interaction between React fro
     npm install 
     npm run build
     ```
-    Deploy the application to the S3 bucket:
+    Deploy and sync the application to the S3 bucket:
     ```
     aws s3 rm s3://gym-logger-frontend/ --recursive
-
-    # Sync files
     aws s3 sync dist/ s3://gym-logger-frontend/ --delete
+    aws cloudfront create-invalidation --distribution-id PLACEHOLDER --paths "/*"
     ```
 
-6.  **Manual Post-Deployment Configurations (Important):**
-
-    * **Cloudfront Setup:**
-        * Create a CloudFront distribution.
-            - Origin Domain: gym-logger-frontend.s3-website.eu-north-1.amazonaws.com
-            - Name: PLACEHOLDER
-            - Viewer Protocol Policy: Redirect HTTP to HTTPS
-            - Origin Request Policy: CORS-S3Origin
-            - Default Root Object: index.html 
-    * **API Gateway CloudWatch Logs Role:**
-        * Go to AWS API Gateway console -> Account -> Settings.
-        * Configure "CloudWatch log role ARN" to `arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/aws-service-role/apigateway.amazonaws.com/AWSServiceRoleForAPIGateway`. (This is a one-time account-level setup per region).
-    * **Cognito User Pool Client Callback/Logout URLs:**
-        * Go to AWS Cognito console -> User Pools -> Your User Pool -> App integration -> App clients -> Your App Client.
-        * Add your CloudFront HTTPS URL (e.g., `https://d3mb9gin18nwyg.cloudfront.net`) to "Allowed callback URLs" and "Allowed sign-out URLs". Keep `http://localhost:5173` for local development.
-
-7.  **Test the Application:**
-    Open your CloudFront endpoint URL (e.g., `https://d3mb9gin18nwyg.cloudfront.net`) on a browser. Clear browser cache and cookies before testing.
-
+9.  **Test the Application:**
+    Go to the CloudFront Distribution URL in the output and test the application:
+    ```
+    aws cloudformation describe-stacks --stack-name GymLoggerFrontendStack-Test
+    ```
 
 ## Troubleshooting
 Here are common issues you might encounter during deployment or operation, and their solutions:
 
-* **"Attributes did not conform to the schema: custom:userId: Attribute does not exist in the schema."**
-    * **Cause:** Cognito User Pool schema is missing the `custom:userId` attribute.
-    * **Fix:** Ensure your `cognito_template.json` has `custom:userId` defined in the `Schema` property of `AWS::Cognito::UserPool`. If it does, force a CloudFormation update of `GymLoggerCognitoStack` and verify the `GymLoggerUserPoolClient` has read/write permissions for this attribute.
+* **"Access denied error when visiting URL."**
+When trying to visit the URL I got this error:
+```
+<Error>
 
-* **"Access to fetch at ... has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present..."**
-    * **Cause:** The browser is blocking the request because the API Gateway response (especially error responses like 403/502) does not include the `Access-Control-Allow-Origin` header.
-    * **Fix:** Ensure your `backend_template.json` includes `AWS::ApiGateway::GatewayResponse` resources for `DEFAULT_4XX` and `DEFAULT_5XX` with the correct CORS headers. Also, ensure your API Gateway methods' `IntegrationResponses` and `MethodResponses` are configured for CORS (as updated in the template).
+<Code>AccessDenied</Code>
 
-* **`403 Forbidden` / "The client is not authorized to perform this operation."**
-    * **Cause:** The authenticated user's IAM role (assumed via Cognito Identity Pool) does not have `execute-api:Invoke` permissions on the API Gateway resource.
-    * **Fix:** Verify the `CognitoAuthorizedPolicy` attached to `Sandbox-GymLoggerAuthenticatedRole` in IAM. Ensure the `Resource` for `execute-api:Invoke` is correctly set (e.g., `"*"` or `arn:aws:execute-api:REGION:ACCOUNT_ID:REST_API_ID/*/*`). Also, confirm the Identity Pool's Trust Policy correctly allows `cognito-identity.amazonaws.com` to assume the role. Clear browser cache and re-login after changes.
+<Message>Access Denied</Message>
 
-* **`502 Bad Gateway` / `Runtime.ImportModuleError` (in Lambda logs)**
-    * **Cause:** Your Lambda function failed to load a required Node.js module (e.g., `uuid` or `aws-sdk`). For Node.js 18.x+, `aws-sdk` v2 is no longer bundled.
-    * **Fix:**
-        1.  **Upgrade to AWS SDK v3:** Update `lambda_code/package.json` to include `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`.
-        2.  **Update `lambda_code/index.js`** to use AWS SDK v3 syntax (`DynamoDBClient`, `DynamoDBDocumentClient.from(client)`, `dynamoDb.send(new PutCommand(params))`, etc.).
-        3.  **Re-install dependencies:** `npm install` in `lambda_code`.
-        4.  **Re-zip:** `zip -r gym-logger-lambda.zip .` (from *inside* `lambda_code` directory to ensure `index.js` and `node_modules` are at the root of the zip).
-        5.  **Re-upload `gym-logger-lambda.zip` to S3** and update your Lambda function in the console or via CloudFormation.
+<RequestId>AE1QSEX35SA5AJF5</RequestId>
+
+<HostId>zG6g0Zs1H9AlTE3Q8xe3XJx4NJsLH/RM7UGV7t8Y50StXITfZQ7paNb57DTOfmP3fLMSX8GXwwnsZz//Xyma9lNWwNSnSY6I</HostId>
+
+</Error>
+```
+To fix it:
+- Go to the S3 frontend bucket.
+- Go to permissions.
+- Go to bucket policy.
+- Paste this:
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PublicReadGetObject",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": [
+                "s3:GetObject"
+            ],
+            "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
+        }
+    ]
+}
+```
+
+* **"The client is not authorized to perform this operation when logging in the application."**
+To fix it:
+- Check if the `CognitoAuthorizedPolicy` is attached to `Sandbox-GymLoggerAuthenticatedRole` in IAM.
+- Ensure the `Resource` for `execute-api:Invoke` is set to `"*"`.
 
 ## What I Learned / Demonstrated
 * Design and implement a fully serverless application architecture on AWS.
 * Utilize Infrastructure as Code (IaC) principles with AWS CloudFormation for reproducible deployments.
 * Develop frontend applications with React and integrate them with backend APIs.
 * Work with core AWS services including Lambda, DynamoDB, API Gateway, and S3.
-* Manage API security and authentication (as the project evolves).
+* Manage API security and authentication.
 * Troubleshoot and debug issues in a distributed cloud environment.
 * Implement data storage solutions with NoSQL databases like DynamoDB.
 
