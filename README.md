@@ -138,6 +138,19 @@ To fix it:
 - Check if the `CognitoAuthorizedPolicy` is attached to `Sandbox-GymLoggerAuthenticatedRole` in IAM.
 - Ensure the `Resource` for `execute-api:Invoke` is set to `"*"`.
 
+* **"CORS Error."**
+```
+Access to fetch at 'https://hves0tnelk.execute-api.eu-north-1.amazonaws.com/Prod/entries/0bd4b499-4197-43d4-88f0-150f5f8bb5ec?type=weightlifting' from origin 'https://d1ov8gkrubqum7.cloudfront.net' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: The 'Access-Control-Allow-Origin' header has a value 'https://d3mb9gin18nwyg.cloudfront.net' that is not equal to the supplied origin. Have the server send the header with a valid value.
+```
+To fix it:
+- Go to the API in the API Gateway Console.
+- Go to the Resources tab.
+- Select the `/entries/{userId}` and `/entries/{userId}/{id}` resources and enable CORS.
+- Check all Access-Control-Allow-Methods
+- Input `Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token` in Access-Control-Allow-Headers
+- Input the Cloudfrount Distribution URL in Access-Control-Allow-Origin
+- Save
+  
 ## What I Learned / Demonstrated
 * Design and implement a fully serverless application architecture on AWS.
 * Utilize Infrastructure as Code (IaC) principles with AWS CloudFormation for reproducible deployments.
