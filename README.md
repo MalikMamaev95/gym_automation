@@ -17,7 +17,7 @@ I decided to redo the project with more technical depth and no Excel. This time 
 The architecture of this project is fully serverless and cost effective. I will be using an Amazon S3 bucket to host the React application as a static website. User interactions will trigger the API Gateway and this will in turn invoke the Lambda functions and these will in turn read/write gym data to and from the DynamoDB database. 
 
 ## Diagram
-<img width="656" height="629" alt="gym_automation" src="https://github.com/user-attachments/assets/86548033-58d4-408a-96ce-f1aab077638f" />
+<img width="601" height="601" alt="gym_automation" src="https://github.com/user-attachments/assets/6ea20ebd-c5cf-4e7f-a08b-1bfe801b4aac" />
 
 ## Deployment Steps
 
